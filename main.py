@@ -1,70 +1,69 @@
 import os
 import requests
+import json
 from bs4 import BeautifulSoup
 from instagrapi import Client
 
 def run_sebat7_robot():
     product_full_url = "https://sebat67.wed2c.com/s/1eewTgZGS00" 
     cl = Client()
+    # Path to save login session
+    session_file = "insta_session.json"
     
     try:
-        print(f"📦 Target Product: {product_full_url}")
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        # 1. LOAD SESSION IF IT EXISTS
+        if os.path.exists(session_file):
+            print("🔄 Loading existing session...")
+            cl.load_settings(session_file)
+
+        user = os.getenv("INSTA_USER")
+        pw = os.getenv("INSTA_PASS")
+
+        print(f"🤖 Attempting login for {user}...")
         
+        # 2. LOGIN WITH SMART ERROR HANDLING
+        try:
+            cl.login(user, pw)
+        except Exception as e:
+            if "checkpoint_required" in str(e) or "challenge_required" in str(e):
+                print("⚠️ Challenge Required: Please check your Instagram app and tap 'This Was Me'.")
+                return
+            else:
+                print(f"❌ Login failed: {e}")
+                # If IP is blocked, we try a softer login approach
+                cl.set_proxy("http://username:password@proxy_address:port") # Optional for later
+                return
+
+        # Save session for next time
+        cl.dump_settings(session_file)
+
+        # 3. GET PRODUCT IMAGES
+        print(f"📦 Scraping: {product_full_url}")
+        headers = {'User-Agent': 'Mozilla/5.0'}
         p_res = requests.get(product_full_url, headers=headers)
         p_soup = BeautifulSoup(p_res.text, 'html.parser')
         
-        # 1. Get Images from EVERY possible source on the page
         image_paths = []
-        # Check meta tags first (best quality)
+        # Fallback image search
         meta_img = p_soup.find('meta', property="og:image")
         if meta_img:
-            img_url = meta_img['content']
-            with open("style_0.jpg", "wb") as f:
-                f.write(requests.get(img_url).content)
-            image_paths.append("style_0.jpg")
-
-        # Search for other product photos
-        all_imgs = p_soup.find_all('img')
-        for i, img in enumerate(all_imgs):
-            src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
-            if src and "product" in src and len(image_paths) < 4:
-                full_url = src if src.startswith('http') else f"https:{src}"
-                if full_url not in [img_url if meta_img else ""]:
-                    path = f"style_{i+1}.jpg"
-                    with open(path, "wb") as f:
-                        f.write(requests.get(full_url).content)
-                    image_paths.append(path)
+            path = "style_0.jpg"
+            with open(path, "wb") as f:
+                f.write(requests.get(meta_img['content']).content)
+            image_paths.append(path)
 
         if not image_paths:
-            print("❌ Error: No images found.")
+            print("❌ No images found.")
             return
 
-        # 2. Login using the Secrets we just set
-        user = os.getenv("INSTA_USER")
-        pw = os.getenv("INSTA_PASS")
-        
-        if not user or not pw:
-            print("❌ ERROR: Username or Password missing in GitHub Secrets!")
-            return
-
-        print(f"🤖 Logging in as {user}...")
-        cl.login(user, pw)
-        
-        caption = (
-            f"Precision meets power. 🛠️✨\n\n"
-            f"The Automotive Multifunctional Detector is a game-changer for your garage. "
-            f"Professional grade, now available at sebat7. ➡️\n\n"
-            f"🔗 Click the link in our bio to order yours today! ♡\n\n"
-            f"#sebat7 #AutomotiveTech #GarageTools #Innovation"
-        )
-        
-        print(f"🚀 Uploading {len(image_paths)} photos...")
-        cl.album_upload(image_paths, caption, audio_path="background.mp3" if os.path.exists("background.mp3") else None)
-        print("✅ SUCCESS: The post is live!")
+        # 4. UPLOAD
+        caption = f"Available now at sebat7! ✨ ✨\n\nShop the link in bio. #sebat7"
+        print("🚀 Finalizing upload...")
+        cl.album_upload(image_paths, caption)
+        print("✅ SUCCESS!")
 
     except Exception as e:
-        print(f"❌ ERROR: {e}")
+        print(f"❌ GLOBAL ERROR: {e}")
 
 if __name__ == "__main__":
     run_sebat7_robot()
